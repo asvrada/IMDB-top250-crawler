@@ -1,33 +1,25 @@
-# Packages in repo
-import requests
-import re
-import json
+import scrapy
 from bs4 import BeautifulSoup
-
-# Local Package
-from Helper import Helper
-
-# Package for debugging
-from Data import PrefetchedData
+import re
+from .Helper import Helper
 
 
-# Constants
-# URL_IMDB_MAIN = r"http://www.imdb.com/chart/top"
-URL_IMDB_MAIN = r"http://www.imdb.com/chart/top?sort=ir,desc&mode=simple"
-URL_IMDB_MOVIE_PREFIX = r"http://www.imdb.com/title/"
-
-
-class BasePage:
-    def __init__(self, url):
-        self.url_page = url
-        download_page = requests.get(self.url_page).text
-        self.bsoup = BeautifulSoup(download_page, "html.parser")
-
-
-class IMDBMainPage(BasePage):
-    def __init__(self, url):
-        super().__init__(url)
-        self.data_movies = []
+class MovieHelper:
+    def __init__(self, text, movie_id):
+        self.bsoup = BeautifulSoup(text, "lxml")
+        self.data_movie = {
+            "id": movie_id,
+            "title": None,
+            "poster_url": None,
+            "year": None,
+            "directors": None,
+            "genres": None,
+            "length": None,
+            "imdb_rating": None,
+            "imdb_rank": None,
+            "metascore": None
+        }
+        self.analyze()
 
     @staticmethod
     def regex_get_movie_id(full_url):
@@ -38,8 +30,8 @@ class IMDBMainPage(BasePage):
         :return: movie_id
         """
         re_pattern = re.compile(r"/title/([^/]*)/")
-        matchs = re.match(re_pattern, full_url)
-        return matchs.group(1)
+        matchs = re.findall(re_pattern, full_url)
+        return matchs[0]
 
     @staticmethod
     def get_movie_id_from_html(movie_block):
@@ -54,44 +46,7 @@ class IMDBMainPage(BasePage):
         full_url = title_column.find("a")["href"]
 
         # Example: tt0111161
-        movie_id = IMDBMainPage.regex_get_movie_id(full_url)
-
-        return movie_id
-
-    @staticmethod
-    def analyze_given_url(full_url):
-        return MoviePage(full_url)
-
-    def analyze(self, start=None, end=None):
-        def process_each_movie(movie):
-            movie_id = self.get_movie_id_from_html(movie)
-            movie = self.analyze_given_url(movie_id)
-            return movie.data_movie
-
-        # Get all 250 cells in the table
-        list_movies = self.bsoup.find_all("tbody", class_="lister-list")[0].find_all("tr")
-
-        self.data_movies = [process_each_movie(movie) for movie in list_movies[start: end]]
-
-        return self
-
-
-class MoviePage(BasePage):
-    def __init__(self, url):
-        super().__init__(URL_IMDB_MOVIE_PREFIX + url)
-        self.data_movie = {
-            "id": url,
-            "title": None,
-            "poster_url": None,
-            "year": None,
-            "directors": None,
-            "genres": None,
-            "length": None,
-            "imdb_rating": None,
-            "imdb_rank": None,
-            "metascore": None
-        }
-        self.analyze()
+        return MovieHelper.regex_get_movie_id(full_url)
 
     def get_title(self):
         # div .title_wrapper
@@ -236,8 +191,27 @@ class MoviePage(BasePage):
                 continue
             self.data_movie[k] = self.get(k)
 
+        return self
 
-main_page = IMDBMainPage(URL_IMDB_MAIN)
-main_page.analyze()
 
-print(json.dumps(main_page.data_movies))
+class TopMoviesSpider(scrapy.Spider):
+    name = "top_movies"
+    start_urls = [
+        'http://www.imdb.com/chart/top?sort=ir,desc&mode=simple',
+    ]
+    URL_IMDB_MOVIE_PREFIX = r"http://www.imdb.com/title/"
+
+    def parse(self, response):
+        bsoup = BeautifulSoup(response.text, "lxml")
+        # Get all 250 cells in the table
+        list_movie_id = [MovieHelper.get_movie_id_from_html(each) for each in
+                         bsoup.find_all("tbody", class_="lister-list")[0].find_all("tr")]
+
+        # Scrap each of the 250 movies
+        for movie_id in list_movie_id:
+            full_url = TopMoviesSpider.URL_IMDB_MOVIE_PREFIX + movie_id
+            yield scrapy.Request(full_url, callback=self.parse_movie)
+
+    def parse_movie(self, response):
+        movie_id = MovieHelper.regex_get_movie_id(response.request.url)
+        yield MovieHelper(response.text, movie_id).data_movie
