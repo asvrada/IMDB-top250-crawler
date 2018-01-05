@@ -10,8 +10,6 @@ from Helper import Helper
 # Package for debugging
 from Data import PrefetchedData
 
-# Flag
-FLAG_USE_PREFETCHED_DATA = False
 
 # Constants
 # URL_IMDB_MAIN = r"http://www.imdb.com/chart/top"
@@ -22,10 +20,7 @@ URL_IMDB_MOVIE_PREFIX = r"http://www.imdb.com/title/"
 class BasePage:
     def __init__(self, url):
         self.url_page = url
-        if not FLAG_USE_PREFETCHED_DATA:
-            download_page = requests.get(self.url_page).text
-        else:
-            download_page = PrefetchedData.HTML_IMDB[self.url_page]
+        download_page = requests.get(self.url_page).text
         self.bsoup = BeautifulSoup(download_page, "html.parser")
 
 
@@ -83,10 +78,7 @@ class IMDBMainPage(BasePage):
 
 class MoviePage(BasePage):
     def __init__(self, url):
-        if FLAG_USE_PREFETCHED_DATA:
-            super().__init__(URL_IMDB_MOVIE_PREFIX)
-        else:
-            super().__init__(URL_IMDB_MOVIE_PREFIX + url)
+        super().__init__(URL_IMDB_MOVIE_PREFIX + url)
         self.data_movie = {
             "id": url,
             "title": None,
@@ -246,6 +238,6 @@ class MoviePage(BasePage):
 
 
 main_page = IMDBMainPage(URL_IMDB_MAIN)
-main_page.analyze(start=248)
+main_page.analyze()
 
 print(json.dumps(main_page.data_movies))
